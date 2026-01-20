@@ -32,13 +32,18 @@ async function login(chatid) {
       headers: {
         'Content-Type': 'application/json'
       },
-      credentials: 'include', // IMPORTANT: Include cookies
       body: JSON.stringify({ chatid })
     });
     
     const data = await response.json();
     
     if (response.ok) {
+      // Store token in localStorage
+      localStorage.setItem('authToken', data.token);
+      localStorage.setItem('userStatus', data.status);
+      localStorage.setItem('userCredits', data.credits);
+      localStorage.setItem('chatId', data.chatid);
+      
       showSuccess(`✅ Login successful!\n\nStatus: ${data.status}\nCredits: ${data.credits}`);
       
       // Redirect to main page after 1 second
