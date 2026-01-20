@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TIGER -> VPN & IP Checker</title>
+  <link rel="stylesheet" href="index.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🛡️ TIGER -> VPN & IP Checker</h1>
+      <p>Check if an IP address is using VPN and if it's blacklisted</p>
+      <div class="user-info">
+        <span id="userStatus"></span>
+        <button id="logoutBtn" class="logout-btn">Logout</button>
+      </div>
+    </header>
+
+    <div class="search-section">
+      <input 
+        type="text" 
+        id="ipInput" 
+        placeholder="Enter IP address (e.g., 8.8.8.8)"
+        autocomplete="off"
+      >
+      <button id="checkBtn">Check IP</button>
+      <button id="myIpBtn">Check My IP</button>
+    </div>
+
+    <div id="loading" class="loading hidden">
+      <div class="spinner"></div>
+      <p>Checking IP address...</p>
+    </div>
+
+    <div id="error" class="error hidden"></div>
+
+    <div id="result" class="result hidden">
+      <div class="result-header">
+        <h2><span id="resultIp"></span></h2>
+      </div>
+
+      <div class="cards">
+        <div class="card ig-card">
+          <div class="card-header">
+            <span class="icon">📱</span>
+            <h3>IG/FB Status</h3>
+          </div>
+          <div id="igStatus" class="status"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <span class="icon">🌐</span>
+            <h3>IP Type</h3>
+          </div>
+          <div id="vpnStatus" class="status"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <span class="icon">🚫</span>
+            <h3>Blacklist</h3>
+          </div>
+          <div id="blacklistStatus" class="status"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <span class="icon">⚠️</span>
+            <h3>Risk Score</h3>
+          </div>
+          <div id="abuseScore" class="status"></div>
+        </div>
+      </div>
+
+      <div class="details">
+        <h3>Details</h3>
+        <div id="detailsContent"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="index.js"></script>
+</body>
+</html>

@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login - IP Checker</title>
+  <link rel="stylesheet" href="login.css">
+</head>
+<body>
+  <div class="container">
+    <div class="login-box">
+        <h1>🛡️ TIGER IP Checker</h1>
+        <h1>🔐 Login</h1>
+      <p class="subtitle">Enter your Chat ID to access IP Checker</p>
+
+      <form id="loginForm">
+        <div class="input-group">
+          <label for="chatid">Chat ID</label>
+          <input 
+            type="text" 
+            id="chatid" 
+            placeholder="Enter your Chat ID"
+            autocomplete="off"
+            required
+          >
+        </div>
+
+        <button type="submit" id="loginBtn">
+          <span id="btnText">Login</span>
+          <span id="btnLoader" class="loader hidden"></span>
+        </button>
+      </form>
+
+      <div id="error" class="error hidden"></div>
+      <div id="success" class="success hidden"></div>
+    </div>
+  </div>
+
+  <script src="login.js"></script>
+</body>
+</html>
