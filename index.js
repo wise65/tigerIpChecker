@@ -7,19 +7,36 @@ const result = document.getElementById('result');
 const logoutBtn = document.getElementById('logoutBtn');
 const userStatus = document.getElementById('userStatus');
 
-// Check session on page load
+// Check authentication on page load
 window.addEventListener('DOMContentLoaded', async () => {
+  const token = localStorage.getItem('authToken');
+  
+  if (!token) {
+    // No token - redirect to login
+    window.location.href = '/login';
+    return;
+  }
+  
   try {
-    const response = await fetch('https://tiger-ip-checker.top/check-session', {
-      credentials: 'include' // IMPORTANT: Include cookies
+    // Verify token with server
+    const response = await fetch('https://tiger-ip-checker.top/verify-token', {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
     });
-    const data = await response.json();
     
-    if (!data.authenticated) {
-      // Not logged in or session expired - redirect to login
+    if (!response.ok) {
+      // Token invalid or expired
+      localStorage.clear();
       window.location.href = '/login';
       return;
     }
+    
+    const data = await response.json();
+    
+    // Update stored data (in case credits changed)
+    localStorage.setItem('userStatus', data.status);
+    localStorage.setItem('userCredits', data.credits);
     
     // Show user info
     userStatus.textContent = `Status: ${data.status} | Credits: ${data.credits}`;
@@ -27,23 +44,30 @@ window.addEventListener('DOMContentLoaded', async () => {
     // Auto-detect and check IP
     getMyIP();
   } catch (err) {
-    console.error('Session check error:', err);
+    console.error('Auth check error:', err);
+    localStorage.clear();
     window.location.href = '/login';
   }
 });
 
 // Logout function
 logoutBtn.addEventListener('click', async () => {
+  const token = localStorage.getItem('authToken');
+  
   try {
     await fetch('https://tiger-ip-checker.top/logout', { 
       method: 'POST',
-      credentials: 'include' // IMPORTANT: Include cookies
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
     });
-    window.location.href = '/login';
   } catch (err) {
     console.error('Logout error:', err);
-    window.location.href = '/login';
   }
+  
+  // Clear local storage and redirect
+  localStorage.clear();
+  window.location.href = '/login';
 });
 
 // Event listeners
@@ -58,9 +82,8 @@ async function getMyIP() {
   try {
     showLoading();
     
-    // Add timeout to prevent infinite loading
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
     
     const response = await fetch('https://api.ipify.org?format=json', {
       signal: controller.signal
@@ -74,7 +97,6 @@ async function getMyIP() {
     
     const data = await response.json();
     ipInput.value = data.ip;
-    // Automatically check the IP
     await checkIP(data.ip);
   } catch (err) {
     hideAll();
@@ -98,7 +120,6 @@ function isValidIP(ip) {
 
 // Check IP address
 async function checkIP(ip) {
-  // Validate input
   if (!ip.trim()) {
     showError('Please enter an IP address');
     return;
@@ -109,20 +130,28 @@ async function checkIP(ip) {
     return;
   }
 
-  // Show loading
   showLoading();
 
+  const token = localStorage.getItem('authToken');
+  
+  if (!token) {
+    showError('Please log in again');
+    setTimeout(() => {
+      window.location.href = '/login';
+    }, 2000);
+    return;
+  }
+
   try {
-    // Add timeout to API request
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
     
     const response = await fetch('https://tiger-ip-checker.top/check-ip', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
       },
-      credentials: 'include', // IMPORTANT: Include cookies
       body: JSON.stringify({ ip }),
       signal: controller.signal
     });
@@ -132,6 +161,16 @@ async function checkIP(ip) {
     const data = await response.json();
 
     if (!response.ok) {
+      // Handle unauthorized (token expired)
+      if (response.status === 401) {
+        localStorage.clear();
+        showError('Session expired. Redirecting to login...');
+        setTimeout(() => {
+          window.location.href = '/login';
+        }, 2000);
+        return;
+      }
+      
       throw new Error(data.error || 'Failed to check IP');
     }
 
@@ -156,14 +195,11 @@ function showLoading() {
 function displayResults(data) {
   const ipData = data.data;
   
-  // Show result section
   hideAll();
   result.classList.remove('hidden');
   
-  // Display IP address
   document.getElementById('resultIp').textContent = ipData.ipAddress;
 
-  // Check if IP is good for Instagram/Facebook
   const igStatus = checkIGQuality(ipData);
   const igStatusDiv = document.getElementById('igStatus');
   
@@ -175,7 +211,6 @@ function displayResults(data) {
     igStatusDiv.className = 'status danger';
   }
 
-  // VPN Status
   const vpnStatus = document.getElementById('vpnStatus');
   if (ipData.usageType === 'Data Center/Web Hosting/Transit' || 
       ipData.usageType === 'Commercial' ||
@@ -187,7 +222,6 @@ function displayResults(data) {
     vpnStatus.className = 'status safe';
   }
 
-  // Blacklist Status
   const blacklistStatus = document.getElementById('blacklistStatus');
   if (ipData.isWhitelisted) {
     blacklistStatus.innerHTML = '✅ Whitelisted';
@@ -203,7 +237,6 @@ function displayResults(data) {
     blacklistStatus.className = 'status safe';
   }
 
-  // Abuse Score
   const abuseScore = document.getElementById('abuseScore');
   const score = ipData.abuseConfidenceScore;
   abuseScore.innerHTML = `${score}%`;
@@ -215,7 +248,6 @@ function displayResults(data) {
     abuseScore.className = 'status safe';
   }
 
-  // Additional details
   const detailsContent = document.getElementById('detailsContent');
   detailsContent.innerHTML = `
     <div class="detail-item">
@@ -237,18 +269,14 @@ function displayResults(data) {
   `;
 }
 
-// Check if IP is good for Instagram/Facebook
 function checkIGQuality(ipData) {
   const totalReports = ipData.totalReports;
   const lastReportedAt = ipData.lastReportedAt;
-  const abuseScore = ipData.abuseConfidenceScore;
   
-  // No reports = Good for IG/FB
   if (totalReports === 0) {
     return { isGood: true, message: 'Perfect for IG/FB (No reports)' };
   }
   
-  // 3-5 reports max AND last report is 30+ days old = Good
   if (totalReports <= 5) {
     if (lastReportedAt) {
       const lastReport = new Date(lastReportedAt);
@@ -261,7 +289,6 @@ function checkIGQuality(ipData) {
     }
   }
   
-  // Everything else = Bad
   return { isGood: false, message: `Bad for IG/FB (${totalReports} reports, too recent or too many)` };
 }
 
@@ -277,14 +304,12 @@ function formatDate(dateString) {
   return `${Math.floor(days / 30)} months ago`;
 }
 
-// Show error
 function showError(message) {
   hideAll();
   error.textContent = message;
   error.classList.remove('hidden');
 }
 
-// Hide all result sections
 function hideAll() {
   loading.classList.add('hidden');
   error.classList.add('hidden');
