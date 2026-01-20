@@ -3,29 +3,26 @@ const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
 const path = require('path');
-const session = require('express-session');
+const jwt = require('jsonwebtoken');
 const { MongoClient } = require('mongodb');
 
 const app = express();
 
-// Only require these if installed
-let helmet, rateLimit, MongoStore;
+// Security middleware
+let helmet, rateLimit;
 try {
   helmet = require('helmet');
   rateLimit = require('express-rate-limit');
-  MongoStore = require('connect-mongo');
 } catch (err) {
   console.log('⚠️ Optional packages not installed:', err.message);
 }
 
-// Security middleware (if installed)
 if (helmet) {
   app.use(helmet({
     contentSecurityPolicy: false,
   }));
 }
 
-// Rate limiting - prevent abuse (if installed)
 if (rateLimit) {
   const limiter = rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -35,15 +32,9 @@ if (rateLimit) {
   app.use('/check-ip', limiter);
 }
 
-// IMPORTANT: Trust proxy for production (needed for secure cookies behind reverse proxy)
-const isProduction = process.env.NODE_ENV === 'production';
-if (isProduction) {
-  app.set('trust proxy', 1); // Trust first proxy
-}
-
-// CORS configuration - SIMPLIFIED for same-origin
+// CORS configuration
 const corsOptions = {
-  origin: true, // Reflects request origin
+  origin: true,
   credentials: true,
   optionsSuccessStatus: 200
 };
@@ -54,6 +45,7 @@ app.use(express.static(__dirname));
 
 // MongoDB connection
 const MONGODB_URI = process.env.MONGO_URI || 'mongodb+srv://cent_wise:Senty017@cluster0.se6rjbj.mongodb.net/?retryWrites=true&w=majority';
+const JWT_SECRET = process.env.JWT_SECRET || process.env.SESSION_SECRET || 'your-super-secret-jwt-key-change-in-production';
 let db;
 let licensesCol;
 
@@ -71,76 +63,36 @@ async function connectDB() {
 
 connectDB();
 
-// Session configuration
-const sessionConfig = {
-  secret: process.env.SESSION_SECRET || 'your-super-secret-random-key-change-in-production',
-  resave: false,
-  saveUninitialized: false,
-  cookie: {
-    maxAge: 2 * 60 * 60 * 1000, // 2 hours
-    httpOnly: true,
-    secure: isProduction, // only true in production
-    sameSite: 'lax',
-    path: '/'
-  }
-};
-
-// Add MongoStore if available
-if (MongoStore) {
-  sessionConfig.store = MongoStore.create({
-    mongoUrl: MONGODB_URI,
-    dbName: 'IG_PassChange',
-    collectionName: 'sessions',
-    ttl: 2 * 60 * 60,
-    touchAfter: 24 * 3600
-  });
-  console.log('✅ Using MongoDB session store');
-} else {
-  console.log('⚠️ Using memory session store (sessions will be lost on restart)');
-  console.log('⚠️ Install connect-mongo: npm install connect-mongo');
-}
-
-app.use(session(sessionConfig));
-
-// Debug helper: echo origin and allow credentials so browser accepts Set-Cookie for fetch with credentials
-app.use((req, res, next) => {
-  if (req.headers.origin) {
-    res.setHeader('Access-Control-Allow-Origin', req.headers.origin);
-  }
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-  next();
-});
-
 const API_KEY = process.env.ABUSEIPDB_API_KEY || 'a37f2145505d4e325ae188307fda07d779c7aa3415df8d9f1f82ddf7875cbc463b7d60803eb7bb70';
 
-// Middleware to check if user is authenticated
+// Middleware to verify JWT token
 function requireAuth(req, res, next) {
-  console.log('🔐 Auth check - Session ID:', req.sessionID);
-  console.log('🔐 Auth check - Chat ID:', req.session?.chatid ? 'Valid' : 'Invalid');
-  console.log('🔐 Auth check - Cookie:', req.headers.cookie);
+  const authHeader = req.headers.authorization;
   
-  if (req.session && req.session.chatid) {
-    next();
-  } else {
-    console.log('❌ No valid session, redirecting to login');
-    res.redirect('/login');
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    console.log('❌ No token provided');
+    return res.status(401).json({ error: 'Authentication required', redirect: '/login' });
   }
-}
 
-// Middleware to check session expiry
-function checkSessionExpiry(req, res, next) {
-  if (req.session && req.session.loginTime) {
-    const currentTime = Date.now();
-    const sessionDuration = currentTime - req.session.loginTime;
-    const twoHours = 2 * 60 * 60 * 1000;
+  const token = authHeader.substring(7); // Remove 'Bearer '
+  
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
     
-    if (sessionDuration > twoHours) {
-      console.log('⏰ Session expired for:', req.session.chatid);
-      req.session.destroy();
-      return res.redirect('/login');
+    // Check if token is expired (2 hours)
+    const currentTime = Math.floor(Date.now() / 1000);
+    if (decoded.exp && decoded.exp < currentTime) {
+      console.log('⏰ Token expired for:', decoded.chatid);
+      return res.status(401).json({ error: 'Session expired', redirect: '/login' });
     }
+    
+    req.user = decoded;
+    console.log('✅ Token verified for:', decoded.chatid);
+    next();
+  } catch (error) {
+    console.error('❌ Token verification failed:', error.message);
+    return res.status(401).json({ error: 'Invalid token', redirect: '/login' });
   }
-  next();
 }
 
 // Health check endpoint
@@ -152,27 +104,21 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Login page - redirect if already logged in
+// Login page
 app.get('/login', (req, res) => {
-  if (req.session && req.session.chatid) {
-    console.log('🔄 Already logged in, redirecting to home');
-    return res.redirect('/');
-  }
   res.sendFile(path.join(__dirname, 'login.html'));
 });
 
-// Home page - requires authentication
-app.get('/', requireAuth, checkSessionExpiry, (req, res) => {
-  console.log('🏠 Serving home page to:', req.session.chatid);
+// Home page
+app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-// Login endpoint (returns JSON; client handles redirect)
+// Login endpoint - returns JWT token
 app.post('/login', async (req, res) => {
   const { chatid } = req.body;
 
   console.log('📥 Login attempt for:', chatid);
-  console.log('📥 Headers:', req.headers);
 
   if (!chatid) {
     return res.status(400).json({ error: 'Chat ID is required' });
@@ -186,34 +132,25 @@ app.post('/login', async (req, res) => {
         return res.status(403).json({ error: '🚫 You are banned from using this service.' });
       }
 
-      req.session.chatid = chatid;
-      req.session.status = user.status || 'active';
-      req.session.credits = user.credits || 0;
-      req.session.loginTime = Date.now();
+      // Create JWT token (expires in 2 hours)
+      const token = jwt.sign(
+        {
+          chatid: chatid,
+          status: user.status || 'active',
+          credits: user.credits || 0
+        },
+        JWT_SECRET,
+        { expiresIn: '2h' }
+      );
 
       console.log(`✅ User logged in: ${chatid}`);
 
-      // Save session before responding
-      req.session.save((err) => {
-        if (err) {
-          console.error('❌ Session save error:', err);
-          return res.status(500).json({ error: 'Login failed. Please try again.' });
-        }
-
-        console.log('💾 Session saved successfully for:', chatid);
-        console.log('🍪 Session ID:', req.sessionID);
-        console.log('🍪 Cookie settings:', sessionConfig.cookie);
-
-        // DEBUG header so you can confirm server attempted to set cookie
-        res.setHeader('X-Session-Set', '1');
-
-        // Return JSON for AJAX/fetch clients (your client uses credentials: 'include')
-        return res.json({
-          success: true,
-          status: user.status || 'active',
-          credits: user.credits || 0,
-          chatid: chatid
-        });
+      return res.json({
+        success: true,
+        token: token,
+        status: user.status || 'active',
+        credits: user.credits || 0,
+        chatid: chatid
       });
     } else {
       console.log(`❌ Login failed: Chat ID ${chatid} not found`);
@@ -225,49 +162,24 @@ app.post('/login', async (req, res) => {
   }
 });
 
-// Logout endpoint
+// Logout endpoint (client-side just removes token)
 app.post('/logout', (req, res) => {
-  const chatid = req.session?.chatid;
-  req.session.destroy((err) => {
-    if (err) {
-      console.error('❌ Logout error:', err);
-      return res.status(500).json({ error: 'Logout failed' });
-    }
-    console.log(`✅ User logged out: ${chatid}`);
-    res.json({ success: true });
+  console.log('✅ User logged out');
+  res.json({ success: true });
+});
+
+// Verify token endpoint
+app.get('/verify-token', requireAuth, (req, res) => {
+  res.json({ 
+    authenticated: true,
+    chatid: req.user.chatid,
+    status: req.user.status,
+    credits: req.user.credits
   });
 });
 
-// Check session endpoint
-app.get('/check-session', (req, res) => {
-  console.log('🔍 Session check - ID:', req.sessionID);
-  console.log('🔍 Session check - Chat ID:', req.session?.chatid);
-  
-  if (req.session && req.session.chatid) {
-    const currentTime = Date.now();
-    const sessionDuration = currentTime - req.session.loginTime;
-    const twoHours = 2 * 60 * 60 * 1000;
-    const remainingTime = twoHours - sessionDuration;
-    
-    if (remainingTime <= 0) {
-      req.session.destroy();
-      return res.json({ authenticated: false, expired: true });
-    }
-    
-    res.json({ 
-      authenticated: true,
-      chatid: req.session.chatid,
-      status: req.session.status,
-      credits: req.session.credits,
-      remainingTime: Math.floor(remainingTime / 1000)
-    });
-  } else {
-    res.json({ authenticated: false });
-  }
-});
-
 // IP check endpoint - requires authentication
-app.post('/check-ip', requireAuth, checkSessionExpiry, async (req, res) => {
+app.post('/check-ip', requireAuth, async (req, res) => {
   const { ip } = req.body;
 
   if (!ip) {
@@ -280,7 +192,7 @@ app.post('/check-ip', requireAuth, checkSessionExpiry, async (req, res) => {
   }
 
   try {
-    console.log(`🔍 Checking IP: ${ip} for user: ${req.session.chatid}`);
+    console.log(`🔍 Checking IP: ${ip} for user: ${req.user.chatid}`);
     
     const response = await axios.get('https://api.abuseipdb.com/api/v2/check', {
       params: {
@@ -335,8 +247,5 @@ app.listen(PORT, HOST, () => {
   console.log('='.repeat(60));
   console.log(`🚀 Server running on http://${HOST}:${PORT}`);
   console.log(`📦 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`🔐 Secure cookies: ${sessionConfig.cookie.secure}`);
-  console.log(`🍪 SameSite: ${sessionConfig.cookie.sameSite}`);
-  console.log(`🔒 Trust proxy: ${app.get('trust proxy')}`);
   console.log('='.repeat(60));
 });
