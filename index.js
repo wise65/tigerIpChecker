@@ -19,7 +19,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   
   try {
     // Verify token with server
-    const response = await fetch('https://tiger-ip-checker.top/verify-token', {
+    const response = await fetch('https://tiger-ip-checker.pro/verify-token', {
       headers: {
         'Authorization': `Bearer ${token}`
       }
@@ -55,7 +55,7 @@ logoutBtn.addEventListener('click', async () => {
   const token = localStorage.getItem('authToken');
   
   try {
-    await fetch('https://tiger-ip-checker.top/logout', { 
+    await fetch('https://tiger-ip-checker.pro/logout', { 
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`
@@ -145,8 +145,8 @@ async function checkIP(ip) {
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 15000);
-    
-    const response = await fetch('https://tiger-ip-checker.top/check-ip', {
+
+    const response = await fetch('https://tiger-ip-checker.pro/check-ip', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
