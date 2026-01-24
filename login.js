@@ -27,7 +27,7 @@ async function login(chatid) {
   hideMessages();
   
   try {
-    const response = await fetch('https://tiger-ip-checker.top/login', {
+    const response = await fetch('https://tiger-ip-checker.pro/login', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
